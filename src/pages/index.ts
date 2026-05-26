@@ -1,0 +1,11 @@
+export { ApprovalsPage } from "./ApprovalsPage";
+export { CustomerUpdatesPage } from "./CustomerUpdatesPage";
+export { DashboardPage } from "./DashboardPage";
+export { LandingPage } from "./LandingPage";
+export { LeadsPage } from "./LeadsPage";
+export { LoginPage } from "./LoginPage";
+export { PricingPage } from "./PricingPage";
+export { ProjectsPage } from "./ProjectsPage";
+export { ProposalsPage } from "./ProposalsPage";
+export { SettingsPage } from "./SettingsPage";
+export { SignupPage } from "./SignupPage";
