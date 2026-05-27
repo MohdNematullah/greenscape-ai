@@ -23,6 +23,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { renderMarkdown } from "@/lib/renderMarkdown";
 import {
   Dialog,
   DialogContent,
@@ -480,15 +481,8 @@ Example: '40x20 backyard, wants travertine patio with built-in fire pit, 6ft sea
                       </div>
                       Full Proposal
                     </h4>
-                    <div className="prose prose-sm max-w-none dark:prose-invert border rounded-xl p-8 bg-gradient-to-br from-white to-gray-50/50 dark:from-zinc-900 dark:to-zinc-800/50 shadow-inner">
-                      <div dangerouslySetInnerHTML={{
-                        __html: previewProposal.proposalContent
-                          .replace(/## (.*)/g, '<h2 class="text-lg font-bold mt-6 mb-2 text-green-700 dark:text-green-400 border-b pb-1">$1</h2>')
-                          .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-                          .replace(/\*(.*?)\*/g, "<em>$1</em>")
-                          .replace(/\n- /g, "\n<li class='ml-4'>• ")
-                          .replace(/\n/g, "<br/>")
-                      }} />
+                    <div className="border rounded-xl p-8 bg-gradient-to-br from-white to-gray-50/50 dark:from-zinc-900 dark:to-zinc-800/50 shadow-inner text-sm leading-relaxed">
+                      <div dangerouslySetInnerHTML={{ __html: renderMarkdown(previewProposal.proposalContent) }} />
                     </div>
                   </div>
                 )}

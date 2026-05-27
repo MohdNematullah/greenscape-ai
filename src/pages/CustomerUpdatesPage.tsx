@@ -23,6 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { renderMarkdown } from "@/lib/renderMarkdown";
 import {
   Select,
   SelectContent,
@@ -221,16 +222,28 @@ export function CustomerUpdatesPage() {
 
               {generatedContent && (
                 <div className="space-y-3">
-                  <Label>Generated Message — Review & Edit</Label>
-                  <Textarea
-                    value={generatedContent}
-                    onChange={(e) => setGeneratedContent(e.target.value)}
-                    rows={6}
-                    className="font-serif"
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold">Generated Message</Label>
+                    <span className="text-xs text-muted-foreground">Review & edit before saving</span>
+                  </div>
+                  {/* Rendered preview */}
+                  <div
+                    className="p-4 bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/20 dark:to-teal-950/20 border border-emerald-200 dark:border-emerald-900 rounded-xl text-sm leading-relaxed shadow-sm"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(generatedContent) }}
                   />
+                  {/* Editable raw version */}
+                  <details className="group">
+                    <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors">Edit raw text ▸</summary>
+                    <Textarea
+                      value={generatedContent}
+                      onChange={(e) => setGeneratedContent(e.target.value)}
+                      rows={6}
+                      className="mt-2 font-mono text-xs"
+                    />
+                  </details>
                   <div className="flex gap-2">
-                    <Button onClick={handleSave} className="flex-1">
-                      <Send className="size-4 mr-2" />Save & Log
+                    <Button onClick={handleSave} className="flex-1 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700">
+                      <Send className="size-4 mr-2" />Save & Log Update
                     </Button>
                     <Button variant="outline" onClick={() => copyToClipboard(generatedContent)}>
                       <Copy className="size-4 mr-1" />Copy
@@ -263,9 +276,10 @@ export function CustomerUpdatesPage() {
                         <span className="text-xs text-muted-foreground">🎯 {update.milestone}</span>
                       )}
                     </div>
-                    <div className="mt-2 p-3 bg-muted/40 rounded-lg text-sm whitespace-pre-wrap font-serif">
-                      {update.content}
-                    </div>
+                    <div
+                      className="mt-2 p-4 bg-gradient-to-br from-white to-gray-50/80 dark:from-zinc-900 dark:to-zinc-800/60 border border-gray-100 dark:border-zinc-800 rounded-xl text-sm leading-relaxed shadow-sm"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(update.content) }}
+                    />
                     <p className="text-xs text-muted-foreground mt-2">
                       {new Date(update._creationTime).toLocaleString()}
                     </p>
