@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useAction } from "convex/react";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   MessageSquare,
   Sparkles,
@@ -7,6 +7,11 @@ import {
   Send,
   Check,
   Copy,
+  ChevronUp,
+  ChevronDown,
+  GripVertical,
+  Plus,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
@@ -38,6 +43,249 @@ const UPDATE_TYPES: Record<string, { label: string; emoji: string }> = {
   completion: { label: "Completion", emoji: "🎉" },
 };
 
+// ─── Section Types for Movable Blocks ────────────────────────────────────────
+
+interface ContentSection {
+  id: string;
+  label: string;
+  emoji: string;
+  content: string;
+}
+
+const SECTION_TEMPLATES: Record<string, { label: string; emoji: string; placeholder: string }> = {
+  greeting: { label: "Greeting", emoji: "👋", placeholder: "Hi [Client Name]," },
+  progress: { label: "Progress Update", emoji: "🔨", placeholder: "What was done this week..." },
+  milestone: { label: "Milestone", emoji: "🎯", placeholder: "Major milestone achieved..." },
+  next_steps: { label: "Next Steps", emoji: "📋", placeholder: "Coming up next..." },
+  timeline: { label: "Timeline", emoji: "📅", placeholder: "Expected timeline..." },
+  note: { label: "Personal Note", emoji: "💬", placeholder: "A warm personal touch..." },
+  signoff: { label: "Sign-Off", emoji: "✍️", placeholder: "— The Greenscape Team" },
+};
+
+function generateId() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+/** Parse generated text into sections by splitting on double-newlines or sentence boundaries */
+function parseContentIntoSections(text: string): ContentSection[] {
+  const clean = stripMarkdown(text).trim();
+  const paragraphs = clean.split(/\n\n+/).filter((p) => p.trim().length > 0);
+
+  if (paragraphs.length <= 1) {
+    // Single block — split by sentences into greeting, body, signoff
+    const sentences = clean.split(/(?<=\.)\s+/);
+    const sections: ContentSection[] = [];
+
+    if (sentences.length >= 1) {
+      sections.push({
+        id: generateId(),
+        label: "Greeting",
+        emoji: "👋",
+        content: sentences[0],
+      });
+    }
+    if (sentences.length >= 3) {
+      sections.push({
+        id: generateId(),
+        label: "Progress Update",
+        emoji: "🔨",
+        content: sentences.slice(1, -1).join(" "),
+      });
+      sections.push({
+        id: generateId(),
+        label: "Sign-Off",
+        emoji: "✍️",
+        content: sentences[sentences.length - 1],
+      });
+    } else if (sentences.length === 2) {
+      sections.push({
+        id: generateId(),
+        label: "Progress Update",
+        emoji: "🔨",
+        content: sentences[1],
+      });
+    }
+    return sections.length > 0 ? sections : [{ id: generateId(), label: "Content", emoji: "📝", content: clean }];
+  }
+
+  // Multiple paragraphs — label them smartly
+  return paragraphs.map((p, i) => {
+    const lower = p.toLowerCase();
+    let label = "Content";
+    let emoji = "📝";
+
+    if (i === 0 && (lower.startsWith("hi ") || lower.startsWith("hello ") || lower.startsWith("dear "))) {
+      label = "Greeting"; emoji = "👋";
+    } else if (i === paragraphs.length - 1 && (lower.includes("greenscape") || lower.includes("team") || lower.startsWith("—") || lower.startsWith("best"))) {
+      label = "Sign-Off"; emoji = "✍️";
+    } else if (lower.includes("milestone") || lower.includes("completed") || lower.includes("finished")) {
+      label = "Milestone"; emoji = "🎯";
+    } else if (lower.includes("next") || lower.includes("coming up") || lower.includes("plan")) {
+      label = "Next Steps"; emoji = "📋";
+    } else if (lower.includes("timeline") || lower.includes("schedule") || lower.includes("week")) {
+      label = "Timeline"; emoji = "📅";
+    } else {
+      label = "Progress Update"; emoji = "🔨";
+    }
+    return { id: generateId(), label, emoji, content: p.trim() };
+  });
+}
+
+function sectionsToContent(sections: ContentSection[]): string {
+  return sections.map((s) => s.content).join("\n\n");
+}
+
+// ─── Movable Section Editor Component ────────────────────────────────────────
+
+function SectionEditor({
+  sections,
+  onChange,
+}: {
+  sections: ContentSection[];
+  onChange: (sections: ContentSection[]) => void;
+}) {
+  const moveUp = useCallback(
+    (index: number) => {
+      if (index <= 0) return;
+      const next = [...sections];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      onChange(next);
+    },
+    [sections, onChange]
+  );
+
+  const moveDown = useCallback(
+    (index: number) => {
+      if (index >= sections.length - 1) return;
+      const next = [...sections];
+      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      onChange(next);
+    },
+    [sections, onChange]
+  );
+
+  const updateContent = useCallback(
+    (index: number, content: string) => {
+      const next = [...sections];
+      next[index] = { ...next[index], content };
+      onChange(next);
+    },
+    [sections, onChange]
+  );
+
+  const removeSection = useCallback(
+    (index: number) => {
+      onChange(sections.filter((_, i) => i !== index));
+    },
+    [sections, onChange]
+  );
+
+  const addSection = useCallback(
+    (type: string) => {
+      const tmpl = SECTION_TEMPLATES[type];
+      if (!tmpl) return;
+      onChange([
+        ...sections,
+        { id: generateId(), label: tmpl.label, emoji: tmpl.emoji, content: "" },
+      ]);
+    },
+    [sections, onChange]
+  );
+
+  return (
+    <div className="space-y-2">
+      {sections.map((section, i) => (
+        <div
+          key={section.id}
+          className="group relative rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/50 overflow-hidden transition-all hover:border-teal-300 dark:hover:border-teal-600"
+        >
+          {/* Section Header */}
+          <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-zinc-800 border-b border-gray-100 dark:border-zinc-700">
+            <GripVertical className="size-3.5 text-gray-400 shrink-0" />
+            <span className="text-sm">{section.emoji}</span>
+            <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 flex-1">
+              {section.label}
+            </span>
+
+            {/* Move Buttons */}
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={() => moveUp(i)}
+                disabled={i === 0}
+                className="p-1 rounded hover:bg-teal-100 dark:hover:bg-teal-900/40 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                title="Move up"
+              >
+                <ChevronUp className="size-3.5 text-teal-600" />
+              </button>
+              <button
+                onClick={() => moveDown(i)}
+                disabled={i === sections.length - 1}
+                className="p-1 rounded hover:bg-teal-100 dark:hover:bg-teal-900/40 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                title="Move down"
+              >
+                <ChevronDown className="size-3.5 text-teal-600" />
+              </button>
+              <button
+                onClick={() => removeSection(i)}
+                className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors ml-1"
+                title="Remove section"
+              >
+                <Trash2 className="size-3 text-red-400" />
+              </button>
+            </div>
+          </div>
+
+          {/* Section Content */}
+          <textarea
+            value={section.content}
+            onChange={(e) => updateContent(i, e.target.value)}
+            rows={Math.max(2, Math.ceil(section.content.length / 60))}
+            className="w-full px-3 py-2 text-sm bg-transparent border-0 resize-none focus:outline-none focus:ring-0 text-gray-700 dark:text-gray-300 placeholder:text-gray-400"
+            placeholder={SECTION_TEMPLATES[section.label.toLowerCase().replace(/\s+/g, "_")]?.placeholder || "Write content..."}
+          />
+        </div>
+      ))}
+
+      {/* Add Section Button */}
+      <div className="flex items-center gap-2 pt-1">
+        <Select onValueChange={addSection}>
+          <SelectTrigger className="h-8 text-xs w-48 border-dashed">
+            <Plus className="size-3 mr-1" />
+            <SelectValue placeholder="Add section..." />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(SECTION_TEMPLATES).map(([key, tmpl]) => (
+              <SelectItem key={key} value={key}>
+                {tmpl.emoji} {tmpl.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
+// ─── Live Preview ────────────────────────────────────────────────────────────
+
+function UpdatePreview({ sections, clientName }: { sections: ContentSection[]; clientName: string }) {
+  const content = sectionsToContent(sections);
+  if (!content.trim()) return null;
+
+  return (
+    <div className="rounded-lg border overflow-hidden">
+      <div className="bg-green-600 px-4 py-2 text-white text-xs font-bold flex items-center gap-2">
+        🌿 Greenscape Update — {clientName}
+      </div>
+      <div className="p-4 text-sm leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-zinc-800/50">
+        {content}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
+
 export function CustomerUpdatesPage() {
   const updates = useQuery(api.customerUpdates.list, {});
   const projects = useQuery(api.projects.list, {});
@@ -56,17 +304,17 @@ export function CustomerUpdatesPage() {
   const [selectedProject, setSelectedProject] = useState("");
   const [updateType, setUpdateType] = useState("progress");
   const [progressDetails, setProgressDetails] = useState("");
-  const [generatedContent, setGeneratedContent] = useState("");
+
+  // Section-based content
+  const [sections, setSections] = useState<ContentSection[]>([]);
 
   const activeProjects = projects?.filter((p) => p.status === "active");
 
-  // Helper: find client email from leads using project's leadId or clientName
   const getClientEmail = (clientName: string, leadId?: string): string | undefined => {
     if (leadId) {
       const lead = leads?.find((l) => l._id === leadId);
       if (lead?.email) return lead.email;
     }
-    // Fallback: match by client name
     const lead = leads?.find((l) => l.name === clientName && l.email);
     return lead?.email || undefined;
   };
@@ -85,8 +333,9 @@ export function CustomerUpdatesPage() {
         progressDetails: progressDetails.trim(),
         updateType,
       });
-      setGeneratedContent(stripMarkdown(result.content));
-      toast.success("Generated! Review and save.");
+      const parsed = parseContentIntoSections(result.content);
+      setSections(parsed);
+      toast.success("Generated! Rearrange sections as needed.");
     } catch {
       toast.error("Failed to generate");
     } finally {
@@ -96,35 +345,34 @@ export function CustomerUpdatesPage() {
 
   const handleSave = async () => {
     const project = projects?.find((p) => p._id === selectedProject);
-    if (!project || !generatedContent.trim()) return;
+    const content = sectionsToContent(sections);
+    if (!project || !content.trim()) return;
     try {
       await createUpdate({
         projectId: project._id,
         clientName: project.clientName,
         updateType,
-        content: generatedContent.trim(),
+        content: content.trim(),
       });
       toast.success("Update saved!");
       setShowCreate(false);
-      setSelectedProject(""); setProgressDetails(""); setGeneratedContent("");
+      setSelectedProject("");
+      setProgressDetails("");
+      setSections([]);
     } catch {
       toast.error("Failed to save");
     }
   };
 
-  // One-click email — auto-finds client email
   const handleSendEmail = async (updateId: string) => {
     const update = updates?.find((u) => u._id === updateId);
     if (!update) return;
-
     const project = projects?.find((p) => p._id === update.projectId);
     const clientEmail = getClientEmail(update.clientName, project?.leadId as string | undefined);
-
     if (!clientEmail) {
       toast.error("No email found for this client. Add an email to the lead first.");
       return;
     }
-
     setSendingEmail(updateId);
     try {
       const result = await sendEmail({
@@ -157,43 +405,66 @@ export function CustomerUpdatesPage() {
           </h1>
           <p className="text-teal-100 text-sm mt-1">Keep clients in the loop — drives referrals</p>
         </div>
-        <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <Dialog
+          open={showCreate}
+          onOpenChange={(open) => {
+            setShowCreate(open);
+            if (!open) {
+              setSections([]);
+              setProgressDetails("");
+              setSelectedProject("");
+            }
+          }}
+        >
           <DialogTrigger asChild>
             <Button className="bg-white text-emerald-700 hover:bg-emerald-50 font-bold">
               <Sparkles className="size-4 mr-1" /> Generate
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle><Sparkles className="size-4 inline mr-1" /> Generate Update</DialogTitle>
+              <DialogTitle>
+                <Sparkles className="size-4 inline mr-1" /> Generate Client Update
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              {/* Project & Type Selectors */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs">Project</Label>
+                  <Label className="text-xs font-medium">Project</Label>
                   <Select value={selectedProject} onValueChange={setSelectedProject}>
-                    <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select project..." />
+                    </SelectTrigger>
                     <SelectContent>
                       {activeProjects?.map((p) => (
-                        <SelectItem key={p._id} value={p._id}>{p.clientName}</SelectItem>
+                        <SelectItem key={p._id} value={p._id}>
+                          {p.clientName}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-xs">Type</Label>
+                  <Label className="text-xs font-medium">Type</Label>
                   <Select value={updateType} onValueChange={setUpdateType}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       {Object.entries(UPDATE_TYPES).map(([k, v]) => (
-                        <SelectItem key={k} value={k}>{v.emoji} {v.label}</SelectItem>
+                        <SelectItem key={k} value={k}>
+                          {v.emoji} {v.label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
+
+              {/* Notes Input */}
               <div>
-                <Label className="text-xs">What happened?</Label>
+                <Label className="text-xs font-medium">What happened?</Label>
                 <Textarea
                   placeholder="Quick notes — AI turns them into a warm client message"
                   value={progressDetails}
@@ -201,19 +472,36 @@ export function CustomerUpdatesPage() {
                   rows={3}
                 />
               </div>
+
               <Button onClick={handleGenerate} disabled={generating} className="w-full">
-                {generating ? "Generating..." : "Generate"}
+                {generating ? (
+                  <><div className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" /> Generating...</>
+                ) : (
+                  <><Sparkles className="size-4 mr-1" /> Generate with AI</>
+                )}
               </Button>
 
-              {generatedContent && (
-                <div className="space-y-3">
-                  <div className="rounded-lg border overflow-hidden">
-                    <div className="bg-green-600 px-4 py-2 text-white text-xs font-bold">🌿 Greenscape Update</div>
-                    <div className="p-4 text-sm leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-zinc-800/50">
-                      {generatedContent}
-                    </div>
+              {/* Section Editor — appears after generation */}
+              {sections.length > 0 && (
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center gap-2">
+                    <Pencil className="size-3.5 text-teal-600" />
+                    <span className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">
+                      Arrange Sections — drag up/down to reorder
+                    </span>
                   </div>
-                  <Textarea value={generatedContent} onChange={(e) => setGeneratedContent(e.target.value)} rows={4} className="text-xs" />
+
+                  <SectionEditor sections={sections} onChange={setSections} />
+
+                  {/* Live Preview */}
+                  <div className="pt-2">
+                    <Label className="text-xs font-medium mb-2 block text-gray-500">Preview</Label>
+                    <UpdatePreview
+                      sections={sections}
+                      clientName={projects?.find((p) => p._id === selectedProject)?.clientName || "Client"}
+                    />
+                  </div>
+
                   <Button onClick={handleSave} className="w-full bg-teal-600 hover:bg-teal-700">
                     <Send className="size-4 mr-1" /> Save Update
                   </Button>
@@ -236,10 +524,16 @@ export function CustomerUpdatesPage() {
                     <div className="flex items-center gap-2 mb-1.5">
                       <span>{t.emoji}</span>
                       <span className="font-semibold text-sm">{update.clientName}</span>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-zinc-800 text-muted-foreground">{t.label}</span>
-                      <span className="text-xs text-muted-foreground ml-auto">{new Date(update._creationTime).toLocaleDateString()}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-zinc-800 text-muted-foreground">
+                        {t.label}
+                      </span>
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {new Date(update._creationTime).toLocaleDateString()}
+                      </span>
                     </div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">{stripMarkdown(update.content)}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                      {stripMarkdown(update.content)}
+                    </p>
                   </div>
                   <div className="flex gap-1 shrink-0">
                     {update.sentVia ? (
@@ -247,20 +541,41 @@ export function CustomerUpdatesPage() {
                         <Check className="size-3" /> Sent
                       </span>
                     ) : (
-                      <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white h-8"
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700 text-white h-8"
                         disabled={sendingEmail === update._id}
-                        onClick={() => handleSendEmail(update._id)}>
+                        onClick={() => handleSendEmail(update._id)}
+                      >
                         {sendingEmail === update._id ? (
                           <div className="size-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         ) : (
-                          <><Send className="size-3.5 mr-1" /> Send</>
+                          <>
+                            <Send className="size-3.5 mr-1" /> Send
+                          </>
                         )}
                       </Button>
                     )}
-                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => { navigator.clipboard.writeText(stripMarkdown(update.content)); toast.success("Copied"); }}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 p-0"
+                      onClick={() => {
+                        navigator.clipboard.writeText(stripMarkdown(update.content));
+                        toast.success("Copied");
+                      }}
+                    >
                       <Copy className="size-3.5" />
                     </Button>
-                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-destructive" onClick={() => { removeUpdate({ id: update._id }); toast.success("Removed"); }}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 p-0 text-destructive"
+                      onClick={() => {
+                        removeUpdate({ id: update._id });
+                        toast.success("Removed");
+                      }}
+                    >
                       <Trash2 className="size-3.5" />
                     </Button>
                   </div>
