@@ -1,4 +1,4 @@
-import { mutation, query, internalQuery } from "./_generated/server";
+import { mutation, query, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
 /** Get a setting by key */
@@ -54,5 +54,21 @@ export const getInternal = internalQuery({
       .withIndex("by_key", (q) => q.eq("key", key))
       .first();
     return row?.value ?? null;
+  },
+});
+
+/** Internal mutation for use by HTTP endpoints and other Convex functions */
+export const setInternal = internalMutation({
+  args: { key: v.string(), value: v.string() },
+  handler: async (ctx, { key, value }) => {
+    const existing = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", key))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, { value });
+    } else {
+      await ctx.db.insert("settings", { key, value });
+    }
   },
 });

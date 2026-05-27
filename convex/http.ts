@@ -79,3 +79,42 @@ http.route({
 });
 
 export default http;
+
+// ─── Config Setup Endpoint ────────────────────────────────────────────────────
+// POST /api/setup — store integration settings in the database
+// Body: { "secret": "greenscape2024", "settings": { "KEY": "value", ... } }
+
+http.route({
+  path: "/api/setup",
+  method: "POST",
+  handler: httpActionGeneric(async (ctx, request) => {
+    try {
+      const body = await request.json() as Record<string, unknown>;
+      if (body.secret !== "greenscape2024setup") {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const settings = body.settings as Record<string, string>;
+      if (!settings || typeof settings !== "object") {
+        return new Response(JSON.stringify({ error: "Missing settings object" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      for (const [key, value] of Object.entries(settings)) {
+        await ctx.runMutation(internal.settings.setInternal, { key, value });
+      }
+      return new Response(JSON.stringify({ success: true, keys: Object.keys(settings) }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (err) {
+      return new Response(JSON.stringify({ error: String(err) }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }),
+});
