@@ -8,6 +8,7 @@ import {
   Send,
   Mail,
   Check,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
@@ -16,6 +17,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { stripMarkdown } from "@/lib/renderMarkdown";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +25,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { renderMarkdown } from "@/lib/renderMarkdown";
 import {
   Select,
   SelectContent,
@@ -49,10 +50,12 @@ export function CustomerUpdatesPage() {
   const markSent = useMutation(api.customerUpdates.markSent);
   const generateUpdate = useAction(api.ai.generateCustomerUpdate);
   const sendEmail = useAction(api.integrations.sendCustomerEmail);
-  const [sendingEmail, setSendingEmail] = useState<string | null>(null);
 
   const [showCreate, setShowCreate] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState<string | null>(null);
+  const [emailDialog, setEmailDialog] = useState<string | null>(null);
+  const [emailTo, setEmailTo] = useState("");
 
   // Form
   const [selectedProject, setSelectedProject] = useState("");
@@ -78,7 +81,8 @@ export function CustomerUpdatesPage() {
         updateType,
         milestone: milestone || undefined,
       });
-      setGeneratedContent(result.content);
+      // Clean the generated content of any markdown artifacts
+      setGeneratedContent(stripMarkdown(result.content));
       toast.success("Update generated! Review and send.");
     } catch {
       toast.error("Failed to generate update");
@@ -98,7 +102,7 @@ export function CustomerUpdatesPage() {
         content: generatedContent.trim(),
         milestone: milestone || undefined,
       });
-      toast.success("Update saved and logged! 📨");
+      toast.success("Update saved!");
       setShowCreate(false);
       setSelectedProject(""); setProgressDetails(""); setGeneratedContent(""); setMilestone("");
     } catch {
@@ -106,29 +110,28 @@ export function CustomerUpdatesPage() {
     }
   };
 
-  const handleSendEmail = async (update: { _id: string; clientName: string; updateType: string; content: string }) => {
-    // Find the project to get client email
-    const project = projects?.find((p) =>
-      updates?.find((u) => u._id === update._id && u.projectId === p._id)
-    );
-    // Try to find client email from the lead
-    const clientEmail = project ? `${project.clientName.toLowerCase().replace(/\s+/g, ".")}@email.com` : "";
-
-    setSendingEmail(update._id);
+  const handleSendEmail = async (updateId: string) => {
+    const update = updates?.find((u) => u._id === updateId);
+    if (!update || !emailTo.trim()) {
+      toast.error("Enter a valid email address");
+      return;
+    }
+    setSendingEmail(updateId);
     try {
       const result = await sendEmail({
-        to: clientEmail,
+        to: emailTo.trim(),
         clientName: update.clientName,
         subject: `Greenscape Project Update — ${UPDATE_TYPES[update.updateType]?.label || update.updateType}`,
-        content: update.content,
+        content: stripMarkdown(update.content),
         updateType: update.updateType,
       });
-
       if (result.success) {
         await markSent({ id: update._id as never, sentVia: "email" });
-        toast.success("Email sent successfully! 📧", { description: `Sent to ${update.clientName}` });
+        toast.success("Email sent!", { description: `Sent to ${update.clientName}` });
+        setEmailDialog(null);
+        setEmailTo("");
       } else {
-        toast.error("Email not sent", { description: result.error || "Check email configuration" });
+        toast.error(result.error || "Failed to send");
       }
     } catch {
       toast.error("Failed to send email");
@@ -138,8 +141,8 @@ export function CustomerUpdatesPage() {
   };
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success("Copied to clipboard!");
+    navigator.clipboard.writeText(stripMarkdown(text));
+    toast.success("Copied!");
   };
 
   return (
@@ -147,7 +150,6 @@ export function CustomerUpdatesPage() {
       {/* Header */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-teal-600 via-emerald-600 to-green-600 p-8 text-white">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-1/4 w-48 h-48 bg-white/5 rounded-full translate-y-1/2" />
         <div className="relative flex items-center justify-between">
           <div>
             <div className="flex items-center gap-3 mb-2">
@@ -155,106 +157,108 @@ export function CustomerUpdatesPage() {
               <h1 className="text-3xl font-bold">Client Updates</h1>
             </div>
             <p className="text-teal-100 text-lg">
-              Personal updates that keep clients informed — the #1 driver of referrals
+              Keep clients informed — the #1 driver of referrals
             </p>
           </div>
-        <Dialog open={showCreate} onOpenChange={setShowCreate}>
-          <DialogTrigger asChild>
-            <Button className="bg-white text-emerald-700 hover:bg-emerald-50 font-bold shadow-lg px-6 py-5 text-base"><Sparkles className="size-4 mr-2" />Generate Update</Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Sparkles className="size-5" />
-                Generate Client Update
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Project</Label>
-                  <Select value={selectedProject} onValueChange={setSelectedProject}>
-                    <SelectTrigger><SelectValue placeholder="Select project..." /></SelectTrigger>
-                    <SelectContent>
-                      {activeProjects?.map((p) => (
-                        <SelectItem key={p._id} value={p._id}>
-                          {p.clientName} — {p.projectType}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Update Type</Label>
-                  <Select value={updateType} onValueChange={setUpdateType}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(UPDATE_TYPES).map(([key, val]) => (
-                        <SelectItem key={key} value={key}>{val.emoji} {val.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              {(updateType === "milestone" || updateType === "halfway") && (
-                <div>
-                  <Label>Milestone</Label>
-                  <Input
-                    placeholder="e.g. Patio pavers fully laid, fire pit framed..."
-                    value={milestone}
-                    onChange={(e) => setMilestone(e.target.value)}
-                  />
-                </div>
-              )}
-              <div>
-                <Label>Progress Details *</Label>
-                <Textarea
-                  placeholder="What's been done, what's next. Be specific — the AI will turn these notes into a warm, personal client message."
-                  value={progressDetails}
-                  onChange={(e) => setProgressDetails(e.target.value)}
-                  rows={4}
-                />
-              </div>
-              <Button onClick={handleGenerate} disabled={generating} className="w-full">
-                <Sparkles className="size-4 mr-2" />
-                {generating ? "Generating..." : "Generate Personal Message"}
+          <Dialog open={showCreate} onOpenChange={setShowCreate}>
+            <DialogTrigger asChild>
+              <Button className="bg-white text-emerald-700 hover:bg-emerald-50 font-bold shadow-lg px-6 py-5 text-base">
+                <Sparkles className="size-4 mr-2" /> Generate Update
               </Button>
-
-              {generatedContent && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm font-semibold">Generated Message</Label>
-                    <span className="text-xs text-muted-foreground">Review & edit before saving</span>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Sparkles className="size-5" /> Generate Client Update
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Project</Label>
+                    <Select value={selectedProject} onValueChange={setSelectedProject}>
+                      <SelectTrigger><SelectValue placeholder="Select project..." /></SelectTrigger>
+                      <SelectContent>
+                        {activeProjects?.map((p) => (
+                          <SelectItem key={p._id} value={p._id}>
+                            {p.clientName} — {p.projectType}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  {/* Rendered preview */}
-                  <div
-                    className="p-4 bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/20 dark:to-teal-950/20 border border-emerald-200 dark:border-emerald-900 rounded-xl text-sm leading-relaxed shadow-sm"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(generatedContent) }}
+                  <div>
+                    <Label>Update Type</Label>
+                    <Select value={updateType} onValueChange={setUpdateType}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(UPDATE_TYPES).map(([key, val]) => (
+                          <SelectItem key={key} value={key}>{val.emoji} {val.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {(updateType === "milestone" || updateType === "halfway") && (
+                  <div>
+                    <Label>Milestone</Label>
+                    <Input placeholder="e.g. Patio pavers fully laid, fire pit framed..."
+                      value={milestone} onChange={(e) => setMilestone(e.target.value)} />
+                  </div>
+                )}
+
+                <div>
+                  <Label>Progress Details</Label>
+                  <Textarea
+                    placeholder="What's been done, what's next. The AI will turn these notes into a warm, personal client message."
+                    value={progressDetails}
+                    onChange={(e) => setProgressDetails(e.target.value)}
+                    rows={4}
                   />
-                  {/* Editable raw version */}
-                  <details className="group">
-                    <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors">Edit raw text ▸</summary>
+                </div>
+
+                <Button onClick={handleGenerate} disabled={generating} className="w-full">
+                  <Sparkles className="size-4 mr-2" /> {generating ? "Generating..." : "Generate Message"}
+                </Button>
+
+                {generatedContent && (
+                  <div className="space-y-3">
+                    <Label className="text-sm font-semibold">Generated Message</Label>
+                    {/* Clean preview — looks like an email */}
+                    <div className="rounded-xl border overflow-hidden">
+                      <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-5 py-3 flex items-center gap-2">
+                        <span className="text-white text-lg">🌿</span>
+                        <div>
+                          <p className="text-white text-sm font-bold">Greenscape</p>
+                          <p className="text-green-100 text-xs">Project Update</p>
+                        </div>
+                      </div>
+                      <div className="p-5 bg-white dark:bg-zinc-900 text-sm leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                        {generatedContent}
+                      </div>
+                    </div>
                     <Textarea
                       value={generatedContent}
                       onChange={(e) => setGeneratedContent(e.target.value)}
-                      rows={6}
-                      className="mt-2 font-mono text-xs"
+                      rows={5}
+                      className="font-mono text-xs"
+                      placeholder="Edit the message..."
                     />
-                  </details>
-                  <div className="flex gap-2">
-                    <Button onClick={handleSave} className="flex-1 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700">
-                      <Send className="size-4 mr-2" />Save & Log Update
-                    </Button>
-                    <Button variant="outline" onClick={() => copyToClipboard(generatedContent)}>
-                      <Copy className="size-4 mr-1" />Copy
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button onClick={handleSave} className="flex-1 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700">
+                        <Send className="size-4 mr-2" /> Save Update
+                      </Button>
+                      <Button variant="outline" onClick={() => copyToClipboard(generatedContent)}>
+                        <Copy className="size-4 mr-1" /> Copy
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
-      </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Updates List */}
@@ -262,61 +266,54 @@ export function CustomerUpdatesPage() {
         {updates?.map((update) => {
           const typeInfo = UPDATE_TYPES[update.updateType] || { label: update.updateType, emoji: "📝" };
           return (
-            <Card key={update._id}>
-              <CardContent className="p-4">
+            <Card key={update._id} className="border-0 bg-white dark:bg-zinc-900 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="p-5">
                 <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-3">
                       <span className="text-lg">{typeInfo.emoji}</span>
                       <h3 className="font-semibold">{update.clientName}</h3>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-muted">
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-zinc-800 text-muted-foreground">
                         {typeInfo.label}
                       </span>
                       {update.milestone && (
                         <span className="text-xs text-muted-foreground">🎯 {update.milestone}</span>
                       )}
                     </div>
-                    <div
-                      className="mt-2 p-4 bg-gradient-to-br from-white to-gray-50/80 dark:from-zinc-900 dark:to-zinc-800/60 border border-gray-100 dark:border-zinc-800 rounded-xl text-sm leading-relaxed shadow-sm"
-                      dangerouslySetInnerHTML={{ __html: renderMarkdown(update.content) }}
-                    />
+
+                    {/* Email-style preview */}
+                    <div className="rounded-lg border overflow-hidden">
+                      <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-4 py-2 flex items-center gap-2">
+                        <span className="text-white">🌿</span>
+                        <span className="text-white text-xs font-bold">Greenscape Update</span>
+                        <span className="text-green-100 text-xs ml-auto">{typeInfo.label}</span>
+                      </div>
+                      <div className="p-4 bg-gray-50 dark:bg-zinc-800/50 text-sm leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                        {stripMarkdown(update.content)}
+                      </div>
+                    </div>
+
                     <p className="text-xs text-muted-foreground mt-2">
                       {new Date(update._creationTime).toLocaleString()}
                     </p>
                   </div>
-                  <div className="flex gap-1 shrink-0">
+
+                  <div className="flex gap-1.5 shrink-0 flex-col sm:flex-row">
                     {update.sentVia ? (
-                      <span className="flex items-center gap-1 text-xs text-green-600 px-2 py-1 bg-green-50 rounded-full">
+                      <span className="flex items-center gap-1 text-xs text-green-600 px-2 py-1 bg-green-50 dark:bg-green-950/30 rounded-full whitespace-nowrap">
                         <Check className="size-3" /> Sent via {update.sentVia}
                       </span>
                     ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-blue-600 hover:text-blue-700"
-                        disabled={sendingEmail === update._id}
-                        onClick={() => handleSendEmail(update)}
-                      >
-                        <Mail className="size-4 mr-1" />
-                        {sendingEmail === update._id ? "Sending..." : "Email"}
+                      <Button size="sm" variant="outline" className="text-green-600 border-green-200"
+                        onClick={() => { setEmailDialog(update._id); setEmailTo(""); }}>
+                        <Mail className="size-4 mr-1" /> Email
                       </Button>
                     )}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => copyToClipboard(update.content)}
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => copyToClipboard(update.content)}>
                       <Copy className="size-4" />
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive"
-                      onClick={() => {
-                        removeUpdate({ id: update._id });
-                        toast.success("Removed");
-                      }}
-                    >
+                    <Button size="sm" variant="ghost" className="text-destructive"
+                      onClick={() => { removeUpdate({ id: update._id }); toast.success("Removed"); }}>
                       <Trash2 className="size-4" />
                     </Button>
                   </div>
@@ -334,6 +331,41 @@ export function CustomerUpdatesPage() {
           </div>
         )}
       </div>
+
+      {/* ── Email Send Dialog ───────────────────────────────────────── */}
+      <Dialog open={!!emailDialog} onOpenChange={() => setEmailDialog(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="size-5 text-green-600" /> Send Update via Email
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Client Email</Label>
+              <Input type="email" placeholder="client@email.com"
+                value={emailTo} onChange={(e) => setEmailTo(e.target.value)} className="mt-1" />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The update will be sent as a branded Greenscape email with your project update message.
+            </p>
+            <div className="flex gap-2">
+              <Button className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                disabled={!emailTo.trim() || sendingEmail === emailDialog}
+                onClick={() => emailDialog && handleSendEmail(emailDialog)}>
+                {sendingEmail === emailDialog ? (
+                  <><div className="size-4 mr-2 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Sending...</>
+                ) : (
+                  <><Send className="size-4 mr-2" /> Send Email</>
+                )}
+              </Button>
+              <Button variant="outline" onClick={() => setEmailDialog(null)}>
+                <X className="size-4 mr-1" /> Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
