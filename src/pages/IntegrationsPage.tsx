@@ -88,10 +88,10 @@ function Step({ n, text, code }: { n: number; text: string; code?: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function IntegrationsPage() {
-  const status = useQuery(api.ghl.getIntegrationStatus, {});
+  const status = useQuery(api.integrations.getIntegrationStatus, {});
   const testSlack = useAction(api.integrations.testSlackConnection);
-  const testGHL = useAction(api.ghl.testConnection);
-  const importGHL = useAction(api.ghl.importGHLContacts);
+  const testGHL = useAction(api.integrations.testGHLConnection);
+  const importGHL = useAction(api.integrations.importGHLContacts);
   const pushTest = useAction(api.integrations.sendDailyDigest);
 
   const [testingSlack, setTestingSlack] = useState(false);

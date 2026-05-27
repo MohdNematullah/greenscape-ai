@@ -35,7 +35,7 @@ http.route({
         const lastName = (contact.lastName as string) || "";
         const name = `${firstName} ${lastName}`.trim() || "GHL Contact";
 
-        await ctx.runMutation(internal.ghl.createLeadFromGHL, {
+        await ctx.runMutation(internal.integrations.createLeadFromGHLInternal, {
           name,
           email: (contact.email as string) || undefined,
           phone: (contact.phone as string) || undefined,

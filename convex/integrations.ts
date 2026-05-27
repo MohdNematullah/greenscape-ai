@@ -7,7 +7,8 @@
  * All integrations are best-effort — they fail silently if not configured.
  */
 import { v } from "convex/values";
-import { action } from "./_generated/server";
+import { action, query, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -407,5 +408,156 @@ export const sendCustomerEmail = action({
     } catch (error) {
       return { success: false, error: String(error) };
     }
+  },
+});
+
+// ─── Integration Status Query ─────────────────────────────────────────────────
+// Called by IntegrationsPage to show which env vars are set.
+
+export const getIntegrationStatus = query({
+  args: {},
+  handler: async () => {
+    const ghlApiKey = process.env.GHL_API_KEY;
+    const ghlLocationId = process.env.GHL_LOCATION_ID;
+    const ghlPipelineId = process.env.GHL_PIPELINE_ID;
+    const slackWebhook = process.env.SLACK_WEBHOOK_URL;
+    const resendApiKey = process.env.RESEND_API_KEY;
+    const fromEmail = process.env.FROM_EMAIL;
+
+    return {
+      ghl: {
+        configured: !!(ghlApiKey && ghlLocationId),
+        hasApiKey: !!ghlApiKey,
+        hasLocationId: !!ghlLocationId,
+        hasPipelineId: !!ghlPipelineId,
+      },
+      slack: {
+        configured: !!slackWebhook,
+        hasWebhook: !!slackWebhook,
+      },
+      email: {
+        configured: !!(resendApiKey && fromEmail),
+        hasApiKey: !!resendApiKey,
+        hasFromEmail: !!fromEmail,
+      },
+    };
+  },
+});
+
+// ─── GHL: Test Connection ─────────────────────────────────────────────────────
+
+export const testGHLConnection = action({
+  args: {},
+  handler: async (): Promise<{ success: boolean; message: string }> => {
+    const apiKey = process.env.GHL_API_KEY;
+    const locationId = process.env.GHL_LOCATION_ID;
+    if (!apiKey || !locationId) {
+      return { success: false, message: "GHL_API_KEY and GHL_LOCATION_ID not configured. Add them in Vercel environment variables." };
+    }
+    try {
+      const resp = await fetch(`https://rest.gohighlevel.com/v1/contacts/?locationId=${locationId}&limit=1`, {
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      });
+      if (resp.ok) {
+        return { success: true, message: "✅ Connected to GoHighLevel successfully!" };
+      }
+      return { success: false, message: `GHL API returned ${resp.status} — check your API key` };
+    } catch (err) {
+      return { success: false, message: `Connection failed: ${String(err)}` };
+    }
+  },
+});
+
+// ─── GHL: Import Contacts as Leads ───────────────────────────────────────────
+
+export const importGHLContacts = action({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<{ success: boolean; imported: number; skipped: number; error?: string }> => {
+    const apiKey = process.env.GHL_API_KEY;
+    const locationId = process.env.GHL_LOCATION_ID;
+    if (!apiKey || !locationId) {
+      return { success: false, imported: 0, skipped: 0, error: "GHL not configured. Add GHL_API_KEY and GHL_LOCATION_ID in Vercel." };
+    }
+    try {
+      const limit = args.limit ?? 50;
+      const resp = await fetch(`https://rest.gohighlevel.com/v1/contacts/?locationId=${locationId}&limit=${limit}`, {
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      });
+      if (!resp.ok) {
+        return { success: false, imported: 0, skipped: 0, error: `GHL API error: ${resp.status}` };
+      }
+      const data = await resp.json() as { contacts: Array<Record<string, unknown>> };
+      const contacts = data.contacts || [];
+      let imported = 0, skipped = 0;
+      for (const c of contacts) {
+        try {
+          const result = await ctx.runMutation(internal.integrations.createLeadFromGHLInternal, {
+            name: `${c.firstName || ""} ${c.lastName || ""}`.trim() || "GHL Contact",
+            email: (c.email as string) || undefined,
+            phone: (c.phone as string) || undefined,
+            address: (c.address1 as string) || undefined,
+            source: "ghl_import",
+            notes: "Imported from GoHighLevel",
+            tags: Array.isArray(c.tags) ? (c.tags as string[]) : undefined,
+          });
+          if (result.created) imported++; else skipped++;
+        } catch { skipped++; }
+      }
+      if (imported > 0) {
+        // Fire-and-forget Slack notification (best effort)
+        try {
+          await sendSlackWebhook(
+            [{ type: "section", text: { type: "mrkdwn", text: `🔄 *GHL Import Complete*\n*Imported:* ${imported} contacts\n*Skipped:* ${skipped} (duplicates)` } }],
+            `GHL import: ${imported} contacts imported`
+          );
+        } catch { /* non-critical */ }
+      }
+      return { success: true, imported, skipped };
+    } catch (err) {
+      return { success: false, imported: 0, skipped: 0, error: String(err) };
+    }
+  },
+});
+
+// ─── GHL: Create Lead from Webhook / Import (internal) ───────────────────────
+
+export const createLeadFromGHLInternal = internalMutation({
+  args: {
+    name: v.string(),
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    address: v.optional(v.string()),
+    source: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, args): Promise<{ created: boolean }> => {
+    // Deduplicate by email
+    if (args.email) {
+      const existing = await ctx.db
+        .query("leads")
+        .filter((q) => q.eq(q.field("email"), args.email))
+        .first();
+      if (existing) return { created: false };
+    }
+    // Determine score from tags
+    let score = 50;
+    if (args.tags) {
+      if (args.tags.some((t) => t.toLowerCase().includes("hot"))) score = 85;
+      else if (args.tags.some((t) => t.toLowerCase().includes("warm"))) score = 65;
+      else if (args.tags.some((t) => t.toLowerCase().includes("cold"))) score = 25;
+    }
+    await ctx.db.insert("leads", {
+      name: args.name,
+      email: args.email,
+      phone: args.phone,
+      address: args.address,
+      source: args.source || "ghl_import",
+      status: "new",
+      qualificationScore: score,
+      notes: args.notes,
+      createdBy: "system" as unknown as import("./_generated/dataModel").Id<"users">,
+    });
+    return { created: true };
   },
 });
