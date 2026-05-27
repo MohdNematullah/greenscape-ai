@@ -9,7 +9,6 @@ import {
   Pencil,
   Trash2,
   Clock,
-  AlertTriangle,
   Eye,
   DollarSign,
   Zap,
@@ -62,6 +61,7 @@ export function ProposalsPage() {
   const leads = useQuery(api.leads.list, {});
   const pricingItems = useQuery(api.pricingItems.list, {});
   const createProposal = useMutation(api.proposals.create);
+  const updateProposal = useMutation(api.proposals.update);
   const approveProposal = useMutation(api.proposals.approve);
   const markSent = useMutation(api.proposals.markSent);
   const markSigned = useMutation(api.proposals.markSigned);
@@ -71,10 +71,10 @@ export function ProposalsPage() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [showPreview, setShowPreview] = useState<string | null>(null);
+  const [editDialog, setEditDialog] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
   const [generating, setGenerating] = useState(false);
   const [sendingEmail, setSendingEmail] = useState<string | null>(null);
-  const [emailDialog, setEmailDialog] = useState<string | null>(null);
-  const [emailTo, setEmailTo] = useState("");
 
   // Form
   const [selectedLead, setSelectedLead] = useState("");
@@ -87,6 +87,12 @@ export function ProposalsPage() {
   const qualifiedLeads = leads?.filter((l) =>
     ["qualified", "site_walk_booked", "site_walk_done", "contacted"].includes(l.status)
   );
+
+  // Helper: get client email from lead
+  const getClientEmail = (leadId: string): string | undefined => {
+    const lead = leads?.find((l) => l._id === leadId);
+    return lead?.email || undefined;
+  };
 
   const handleGenerate = async () => {
     if (!selectedLead || !siteWalkNotes.trim()) {
@@ -136,16 +142,21 @@ export function ProposalsPage() {
     }
   };
 
+  // One-click email send — auto-fetches client email from lead
   const handleSendEmail = async (proposalId: string) => {
     const proposal = proposals?.find((p) => p._id === proposalId);
-    if (!proposal || !emailTo.trim()) {
-      toast.error("Enter a valid email address");
+    if (!proposal) return;
+
+    const clientEmail = getClientEmail(proposal.leadId);
+    if (!clientEmail) {
+      toast.error("No email found for this client. Add an email to the lead first.");
       return;
     }
+
     setSendingEmail(proposalId);
     try {
       const result = await sendEmail({
-        to: emailTo.trim(),
+        to: clientEmail,
         clientName: proposal.clientName,
         subject: `Greenscape Proposal — ${proposal.projectType.replace(/_/g, " ")}`,
         content: stripMarkdown(proposal.proposalContent || ""),
@@ -153,16 +164,35 @@ export function ProposalsPage() {
       });
       if (result.success) {
         await markSent({ id: proposal._id });
-        toast.success("Proposal sent via email!", { description: `Sent to ${emailTo}` });
-        setEmailDialog(null);
-        setEmailTo("");
+        toast.success("Proposal sent!", { description: `Emailed to ${clientEmail}` });
       } else {
         toast.error(result.error || "Failed to send email");
       }
     } catch {
-      toast.error("Failed to send email — check email configuration");
+      toast.error("Email not configured — add RESEND_API_KEY in settings");
     } finally {
       setSendingEmail(null);
+    }
+  };
+
+  // Open edit dialog
+  const openEdit = (proposal: { _id: string; proposalContent?: string }) => {
+    setEditContent(proposal.proposalContent || "");
+    setEditDialog(proposal._id);
+  };
+
+  // Save edit
+  const handleSaveEdit = async () => {
+    if (!editDialog || !editContent.trim()) return;
+    try {
+      await updateProposal({
+        id: editDialog as Id<"proposals">,
+        proposalContent: editContent.trim(),
+      });
+      toast.success("Proposal updated!");
+      setEditDialog(null);
+    } catch {
+      toast.error("Failed to update");
     }
   };
 
@@ -271,6 +301,7 @@ export function ProposalsPage() {
       <div className="space-y-3">
         {proposals?.map((proposal) => {
           const cfg = statusConfig[proposal.status] || statusConfig.draft;
+          const clientEmail = getClientEmail(proposal.leadId);
           return (
             <Card key={proposal._id} className="hover:shadow-md transition-all border-0 bg-white dark:bg-zinc-900">
               <CardContent className="p-5">
@@ -299,26 +330,36 @@ export function ProposalsPage() {
                           <Clock className="size-3" /> {proposal.daysToGenerate}d cycle
                         </span>
                       )}
-                      {proposal.totalAmount && proposal.totalAmount > 30000 && !proposal.needsRender && (
-                        <span className="flex items-center gap-1 text-amber-600 text-xs">
-                          <AlertTriangle className="size-3" /> $30K+ — needs render
-                        </span>
+                      {clientEmail && (
+                        <span className="text-xs text-muted-foreground">📧 {clientEmail}</span>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {/* Preview */}
                     {proposal.proposalContent && (
-                      <>
-                        <Button size="sm" variant="outline" className="text-indigo-600 border-indigo-200"
-                          onClick={() => setShowPreview(proposal._id)}>
-                          <Eye className="size-4 mr-1" /> Preview
-                        </Button>
-                        <Button size="sm" variant="outline" className="text-green-600 border-green-200"
-                          onClick={() => { setEmailDialog(proposal._id); setEmailTo(""); }}>
-                          <Mail className="size-4 mr-1" /> Send
-                        </Button>
-                      </>
+                      <Button size="sm" variant="outline" className="text-indigo-600 border-indigo-200"
+                        onClick={() => setShowPreview(proposal._id)}>
+                        <Eye className="size-4 mr-1" /> Preview
+                      </Button>
                     )}
+                    {/* Edit */}
+                    <Button size="sm" variant="outline" onClick={() => openEdit(proposal)}>
+                      <Pencil className="size-4 mr-1" /> Edit
+                    </Button>
+                    {/* Send Email — one click, auto captures client email */}
+                    {proposal.proposalContent && proposal.status !== "sent" && proposal.status !== "signed" && (
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white"
+                        disabled={sendingEmail === proposal._id}
+                        onClick={() => handleSendEmail(proposal._id)}>
+                        {sendingEmail === proposal._id ? (
+                          <><div className="size-3.5 mr-1 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Sending</>
+                        ) : (
+                          <><Send className="size-4 mr-1" /> Send</>
+                        )}
+                      </Button>
+                    )}
+                    {/* Status Actions + Delete dropdown */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button size="sm" variant="ghost"><ChevronDown className="size-4" /></Button>
@@ -331,12 +372,12 @@ export function ProposalsPage() {
                         )}
                         {["draft", "approved"].includes(proposal.status) && (
                           <DropdownMenuItem onClick={() => { markSent({ id: proposal._id }); toast.success("Marked sent"); }}>
-                            <Send className="size-4 mr-1" /> Mark Sent
+                            <Mail className="size-4 mr-1" /> Mark Sent
                           </DropdownMenuItem>
                         )}
                         {proposal.status === "sent" && (
                           <DropdownMenuItem onClick={() => { markSigned({ id: proposal._id }); toast.success("🎉 Signed!"); }}>
-                            <Pencil className="size-4 mr-1" /> Mark Signed
+                            <CheckCircle className="size-4 mr-1" /> Mark Signed
                           </DropdownMenuItem>
                         )}
                         {proposal.proposalContent && (
@@ -365,10 +406,40 @@ export function ProposalsPage() {
         )}
       </div>
 
+      {/* ── Edit Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={!!editDialog} onOpenChange={() => setEditDialog(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="size-5 text-indigo-600" /> Edit Proposal
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              rows={18}
+              className="font-mono text-sm leading-relaxed"
+              placeholder="Edit proposal content..."
+            />
+            <div className="flex gap-2">
+              <Button className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleSaveEdit}>
+                <CheckCircle className="size-4 mr-2" /> Save Changes
+              </Button>
+              <Button variant="outline" onClick={() => setEditDialog(null)}>
+                <X className="size-4 mr-1" /> Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Proposal Preview Dialog ─────────────────────────────────── */}
       <Dialog open={!!showPreview} onOpenChange={() => setShowPreview(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
-          {previewProposal && (
+          {previewProposal && (() => {
+            const email = getClientEmail(previewProposal.leadId);
+            return (
             <>
               <div className="bg-gradient-to-r from-green-600 to-emerald-600 p-6 text-white rounded-t-lg">
                 <DialogHeader>
@@ -386,6 +457,7 @@ export function ProposalsPage() {
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/20 capitalize">
                     {previewProposal.status}
                   </span>
+                  {email && <span className="text-xs bg-white/10 px-2 py-0.5 rounded-full">📧 {email}</span>}
                 </div>
               </div>
 
@@ -450,58 +522,25 @@ export function ProposalsPage() {
                 {/* Action buttons in preview */}
                 <div className="flex gap-2 pt-2 border-t">
                   <Button className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                    onClick={() => { setEmailDialog(previewProposal._id); setEmailTo(""); setShowPreview(null); }}>
-                    <Mail className="size-4 mr-2" /> Send via Email
+                    disabled={sendingEmail === previewProposal._id}
+                    onClick={() => { handleSendEmail(previewProposal._id); }}>
+                    {sendingEmail === previewProposal._id ? (
+                      <><div className="size-4 mr-2 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Sending...</>
+                    ) : (
+                      <><Send className="size-4 mr-2" /> Send to Client {email ? `(${email})` : ""}</>
+                    )}
+                  </Button>
+                  <Button variant="outline" onClick={() => openEdit(previewProposal)}>
+                    <Pencil className="size-4 mr-2" /> Edit
                   </Button>
                   <Button variant="outline" onClick={() => copyProposal(previewProposal.proposalContent || "")}>
-                    <Copy className="size-4 mr-2" /> Copy Text
+                    <Copy className="size-4 mr-2" /> Copy
                   </Button>
                 </div>
               </div>
             </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Email Send Dialog ───────────────────────────────────────── */}
-      <Dialog open={!!emailDialog} onOpenChange={() => setEmailDialog(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Mail className="size-5 text-green-600" /> Send Proposal via Email
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Client Email</Label>
-              <Input
-                type="email"
-                placeholder="client@email.com"
-                value={emailTo}
-                onChange={(e) => setEmailTo(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              The proposal will be sent as a branded Greenscape email with the full scope, line items, and next steps.
-            </p>
-            <div className="flex gap-2">
-              <Button
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                disabled={!emailTo.trim() || sendingEmail === emailDialog}
-                onClick={() => emailDialog && handleSendEmail(emailDialog)}
-              >
-                {sendingEmail === emailDialog ? (
-                  <><div className="size-4 mr-2 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Sending...</>
-                ) : (
-                  <><Send className="size-4 mr-2" /> Send Proposal</>
-                )}
-              </Button>
-              <Button variant="outline" onClick={() => setEmailDialog(null)}>
-                <X className="size-4 mr-1" /> Cancel
-              </Button>
-            </div>
-          </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
