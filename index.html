@@ -16,7 +16,7 @@
     <meta name="theme-color" content="#16a34a" />
     <!-- Loading state for screenshot bots / pre-render -->
     <style>
-      #root:empty {
+      .gs-splash {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -24,18 +24,34 @@
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #064e3b 100%);
         color: white;
         font-family: system-ui, -apple-system, sans-serif;
+        text-align: center;
       }
-      #root:empty::after {
-        content: '🌿 Greenscape AI';
-        font-size: 2.5rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-        opacity: 0.9;
+      .gs-splash-logo { font-size: 3rem; margin-bottom: 0.5rem; }
+      .gs-splash-title { font-size: 2.5rem; font-weight: 700; letter-spacing: -0.02em; }
+      .gs-splash-sub { margin-top: 0.75rem; font-size: 1.1rem; opacity: 0.7; }
+      .gs-splash-badge {
+        display: inline-block;
+        margin-top: 1.5rem;
+        padding: 0.5rem 1.25rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.1);
+        font-size: 0.85rem;
+        opacity: 0.8;
       }
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Visible to screenshot bots & before JS loads — React replaces this -->
+      <div class="gs-splash">
+        <div>
+          <div class="gs-splash-logo">🌿</div>
+          <div class="gs-splash-title">Greenscape AI</div>
+          <div class="gs-splash-sub">AI-Powered Landscaping Business OS</div>
+          <div class="gs-splash-badge">✦ Built for Greenscape · Phoenix, AZ</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
