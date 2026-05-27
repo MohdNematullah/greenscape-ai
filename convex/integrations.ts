@@ -18,8 +18,8 @@ const APP_URL = "https://greenscape-ai-navy.vercel.app";
 
 type SlackBlock = Record<string, unknown>;
 
-async function sendSlackWebhook(blocks: SlackBlock[], fallbackText: string): Promise<boolean> {
-  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+async function sendSlackWebhook(blocks: SlackBlock[], fallbackText: string, webhookOverride?: string): Promise<boolean> {
+  const webhookUrl = webhookOverride || process.env.SLACK_WEBHOOK_URL;
   if (!webhookUrl) {
     console.log("SLACK_WEBHOOK_URL not configured — skipping");
     return false;
@@ -41,6 +41,22 @@ async function sendSlackWebhook(blocks: SlackBlock[], fallbackText: string): Pro
   }
 }
 
+/** Resolve webhook URL from env vars or DB settings */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function resolveSlackWebhook(ctx: { runQuery: any }): Promise<string | undefined> {
+  const envUrl = process.env.SLACK_WEBHOOK_URL;
+  if (envUrl) return envUrl;
+  const dbUrl: string | null = await ctx.runQuery(api.settings.get, { key: "SLACK_WEBHOOK_URL" });
+  return dbUrl || undefined;
+}
+
+/** Send Slack notification with automatic DB fallback for webhook URL */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function sendSlackNotification(ctx: { runQuery: any }, blocks: SlackBlock[], fallbackText: string): Promise<boolean> {
+  const url = await resolveSlackWebhook(ctx);
+  return await sendSlackWebhook(blocks, fallbackText, url);
+}
+
 function divider(): SlackBlock {
   return { type: "divider" };
 }
@@ -52,9 +68,11 @@ function context(text: string): SlackBlock {
 // ─── Test Connection ──────────────────────────────────────────────────────────
 
 export const testSlackConnection = action({
-  args: {},
+  args: { webhookUrl: v.optional(v.string()) },
   returns: v.boolean(),
-  handler: async () => {
+  handler: async (ctx, args) => {
+    const url = args.webhookUrl || await resolveSlackWebhook(ctx);
+    if (!url) return false;
     return await sendSlackWebhook(
       [
         {
@@ -66,7 +84,8 @@ export const testSlackConnection = action({
         },
         context(`Connected at ${new Date().toLocaleString("en-US", { timeZone: "America/Phoenix" })} · Phoenix AZ`),
       ],
-      "Greenscape AI — Slack integration test ✅"
+      "Greenscape AI — Slack integration test ✅",
+      url
     );
   },
 });
@@ -84,7 +103,7 @@ export const notifyNewLead = action({
     estimatedValue: v.optional(v.string()),
   },
   returns: v.boolean(),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const isQualified = args.qualified === true;
     const isDisqualified = args.qualified === false;
 
@@ -122,7 +141,7 @@ export const notifyNewLead = action({
       blocks.push(context(`<${APP_URL}/leads|Open Leads in Dashboard>`));
     }
 
-    return await sendSlackWebhook(blocks, `${emoji} New lead: ${args.name} — ${statusLabel}`);
+    return await sendSlackNotification(ctx, blocks, `${emoji} New lead: ${args.name} — ${statusLabel}`);
   },
 });
 
@@ -136,7 +155,7 @@ export const notifyProposalApproved = action({
     approvedBy: v.string(),
   },
   returns: v.boolean(),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const blocks: SlackBlock[] = [
       {
         type: "header",
@@ -153,7 +172,7 @@ export const notifyProposalApproved = action({
       },
       context(`🚀 Ready to send to client for signature  ·  <${APP_URL}/proposals|Open Proposals>`),
     ];
-    return await sendSlackWebhook(blocks, `📋 Proposal approved for ${args.clientName}`);
+    return await sendSlackNotification(ctx, blocks, `📋 Proposal approved for ${args.clientName}`);
   },
 });
 
@@ -164,7 +183,7 @@ export const notifyProposalSigned = action({
     totalAmount: v.optional(v.number()),
   },
   returns: v.boolean(),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const blocks: SlackBlock[] = [
       {
         type: "header",
@@ -179,7 +198,7 @@ export const notifyProposalSigned = action({
       },
       context(`🏗️ Next: Create project, send deposit invoice  ·  <${APP_URL}/projects|Open Projects>`),
     ];
-    return await sendSlackWebhook(blocks, `🎉 Signed! ${args.clientName} — $${args.totalAmount?.toLocaleString() ?? "TBD"}`);
+    return await sendSlackNotification(ctx, blocks, `🎉 Signed! ${args.clientName} — $${args.totalAmount?.toLocaleString() ?? "TBD"}`);
   },
 });
 
@@ -195,7 +214,7 @@ export const notifyApprovalRequest = action({
     clientName: v.optional(v.string()),
   },
   returns: v.boolean(),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const urgencyEmoji = args.urgency === "urgent" ? "🔴" : args.urgency === "normal" ? "🟡" : "🟢";
     const blocks: SlackBlock[] = [
       {
@@ -213,7 +232,7 @@ export const notifyApprovalRequest = action({
       },
       context(`${args.clientName ? `Client: ${args.clientName}  ·  ` : ""}<${APP_URL}/approvals|Review in Dashboard>`),
     ];
-    return await sendSlackWebhook(blocks, `${urgencyEmoji} Approval needed: ${args.title}`);
+    return await sendSlackNotification(ctx, blocks, `${urgencyEmoji} Approval needed: ${args.title}`);
   },
 });
 
@@ -228,7 +247,7 @@ export const notifyProjectMilestone = action({
     notes: v.optional(v.string()),
   },
   returns: v.boolean(),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const milestoneEmojis: Record<string, string> = {
       deposit_paid: "💰", hoa_approved: "🏘️", permit_approved: "📜",
       crew_scheduled: "👷", work_started: "🔨", halfway: "📐",
@@ -248,7 +267,7 @@ export const notifyProjectMilestone = action({
     if (args.notes) blocks.push(context(args.notes));
     blocks.push(context(`<${APP_URL}/projects|Open Projects>`));
 
-    return await sendSlackWebhook(blocks, `${emoji} ${args.clientName}: ${args.milestone}`);
+    return await sendSlackNotification(ctx, blocks, `${emoji} ${args.clientName}: ${args.milestone}`);
   },
 });
 
@@ -265,7 +284,7 @@ export const sendDailyDigest = action({
     todayDate: v.string(),
   },
   returns: v.boolean(),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const blocks: SlackBlock[] = [
       {
         type: "header",
@@ -299,7 +318,7 @@ export const sendDailyDigest = action({
 
     blocks.push(context(`<${APP_URL}|Open Greenscape AI Dashboard>`));
 
-    return await sendSlackWebhook(blocks, `☀️ Daily brief: ${args.newLeads} new leads, ${args.openProposals} open proposals, ${args.pendingApprovals} approvals pending`);
+    return await sendSlackNotification(ctx, blocks, `☀️ Daily brief: ${args.newLeads} new leads, ${args.openProposals} open proposals, ${args.pendingApprovals} approvals pending`);
   },
 });
 
@@ -312,8 +331,8 @@ export const notifyGHLSync = action({
     direction: v.string(),
   },
   returns: v.boolean(),
-  handler: async (_ctx, args) => {
-    return await sendSlackWebhook(
+  handler: async (ctx, args) => {
+    return await sendSlackNotification(ctx,
       [
         {
           type: "section",
@@ -407,7 +426,7 @@ export const sendCustomerEmail = action({
       console.log(`Email sent to ${args.to}: ${result.id}`);
 
       // Notify Slack
-      await sendSlackWebhook(
+      await sendSlackNotification(ctx,
         [{ type: "context", elements: [{ type: "mrkdwn", text: `📧 Customer update emailed to *${args.clientName}* (${args.to}) — ${args.updateType}` }] }],
         `Email sent to ${args.clientName}`
       );
@@ -522,7 +541,7 @@ export const importGHLContacts = action({
       if (imported > 0) {
         // Fire-and-forget Slack notification (best effort)
         try {
-          await sendSlackWebhook(
+          await sendSlackNotification(ctx,
             [{ type: "section", text: { type: "mrkdwn", text: `🔄 *GHL Import Complete*\n*Imported:* ${imported} contacts\n*Skipped:* ${skipped} (duplicates)` } }],
             `GHL import: ${imported} contacts imported`
           );
