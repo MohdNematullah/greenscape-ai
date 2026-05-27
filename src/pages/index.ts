@@ -1,4 +1,5 @@
 export { ApprovalsPage } from "./ApprovalsPage";
+export { IntegrationsPage } from "./IntegrationsPage";
 export { CustomerUpdatesPage } from "./CustomerUpdatesPage";
 export { DashboardPage } from "./DashboardPage";
 export { LandingPage } from "./LandingPage";

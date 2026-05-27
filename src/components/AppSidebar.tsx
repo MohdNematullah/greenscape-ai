@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   LogOut,
   Moon,
+  Plug,
   Settings,
   Sun,
   Users,
@@ -54,6 +55,10 @@ const pipelineNav = [
 const managementNav = [
   { href: "/approvals", label: "Approvals", icon: CheckSquare },
   { href: "/pricing", label: "Pricing", icon: DollarSign },
+];
+
+const systemNav = [
+  { href: "/integrations", label: "Integrations", icon: Plug },
 ];
 
 function NavLink({
@@ -139,6 +144,23 @@ function SidebarNav() {
                 icon={item.icon}
                 isActive={location.pathname === item.href}
                 badge={item.href === "/approvals" ? (pendingApprovals ?? 0) : undefined}
+              />
+            ))}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+
+      <SidebarGroup>
+        <SidebarGroupLabel>System</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {systemNav.map((item) => (
+              <NavLink
+                key={item.href}
+                href={item.href}
+                label={item.label}
+                icon={item.icon}
+                isActive={location.pathname === item.href}
               />
             ))}
           </SidebarMenu>

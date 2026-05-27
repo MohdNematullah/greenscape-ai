@@ -10,6 +10,7 @@ import {
   ApprovalsPage,
   CustomerUpdatesPage,
   DashboardPage,
+  IntegrationsPage,
   LandingPage,
   LeadsPage,
   LoginPage,
@@ -43,6 +44,7 @@ function App() {
               <Route path="/approvals" element={<ApprovalsPage />} />
               <Route path="/updates" element={<CustomerUpdatesPage />} />
               <Route path="/pricing" element={<PricingPage />} />
+              <Route path="/integrations" element={<IntegrationsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Route>
