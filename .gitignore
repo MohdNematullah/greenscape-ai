@@ -9,8 +9,8 @@ dist/
 .env.local
 .env.*.local
 
-# Convex generated files
-convex/_generated/
+# Convex generated files — NOT ignored, needed for Vercel builds
+# convex/_generated/
 
 # IDE
 .vscode/
