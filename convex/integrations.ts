@@ -387,7 +387,7 @@ export const sendCustomerEmail = action({
       const response = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${resendApiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from: fromEmail, to: [args.to], subject: args.subject, html: htmlContent }),
+        body: JSON.stringify({ from: `Greenscape AI <${fromEmail}>`, to: [args.to], subject: args.subject, html: htmlContent }),
       });
 
       if (!response.ok) {
