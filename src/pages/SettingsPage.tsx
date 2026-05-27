@@ -1,337 +1,152 @@
-import { useAuthActions } from "@convex-dev/auth/react";
+/**
+ * Settings Page — Configure API keys for integrations directly from the app.
+ */
 import { useMutation, useQuery } from "convex/react";
-import { ChevronRight, Loader2, Moon, Palette, Sun, User } from "lucide-react";
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useState, useEffect } from "react";
+import { Settings, Save, Eye, EyeOff, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
+import { api } from "../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { useTheme } from "@/contexts/ThemeContext";
-import { api } from "../../convex/_generated/api";
+
+const SETTING_KEYS = [
+  { key: "RESEND_API_KEY", label: "Resend API Key", placeholder: "re_...", hint: "resend.com → API Keys" },
+  { key: "FROM_EMAIL", label: "From Email", placeholder: "onboarding@resend.dev", hint: "Sender email address" },
+  { key: "GHL_API_KEY", label: "GHL API Key", placeholder: "Your GHL API key", hint: "GHL → Settings → API Keys" },
+  { key: "GHL_LOCATION_ID", label: "GHL Location ID", placeholder: "Sub-account ID", hint: "GHL → Settings → Business Info" },
+  { key: "SLACK_WEBHOOK_URL", label: "Slack Webhook URL", placeholder: "https://hooks.slack.com/services/...", hint: "Slack → Incoming Webhooks" },
+];
 
 export function SettingsPage() {
-  const user = useQuery(api.auth.currentUser);
-  const { theme, toggleTheme, switchable } = useTheme();
-  const { signIn, signOut } = useAuthActions();
-  const deleteAccount = useMutation(api.users.deleteAccount);
-  const navigate = useNavigate();
+  const settings = useQuery(api.settings.getMultiple, { keys: SETTING_KEYS.map((s) => s.key) });
+  const setSetting = useMutation(api.settings.set);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState<string | null>(null);
 
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
-  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [passwordStep, setPasswordStep] = useState<"request" | "verify">(
-    "request",
-  );
+  useEffect(() => {
+    if (settings) {
+      const initial: Record<string, string> = {};
+      for (const k of SETTING_KEYS) {
+        initial[k.key] = settings[k.key] || "";
+      }
+      setValues(initial);
+    }
+  }, [settings]);
 
-  const handleRequestPasswordReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-
-    const formData = new FormData();
-    formData.append("email", user?.email || "");
-    formData.append("flow", "reset");
-
+  const handleSave = async (key: string) => {
+    setSaving(key);
     try {
-      await signIn("password", formData);
-      setPasswordStep("verify");
+      await setSetting({ key, value: values[key] || "" });
+      toast.success(`${key} saved!`);
     } catch {
-      setError("Could not send reset code. Please try again.");
+      toast.error(`Failed to save ${key}`);
     } finally {
-      setLoading(false);
+      setSaving(null);
     }
   };
 
-  const handleResetPassword = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-
-    const formData = new FormData(e.currentTarget);
-    formData.append("email", user?.email || "");
-    formData.append("flow", "reset-verification");
-
+  const handleSaveAll = async () => {
+    setSaving("all");
     try {
-      await signIn("password", formData);
-      setSuccess("Password changed successfully!");
-      setTimeout(() => {
-        setChangePasswordOpen(false);
-        setPasswordStep("request");
-        setSuccess("");
-      }, 1500);
+      for (const k of SETTING_KEYS) {
+        if (values[k.key] !== (settings?.[k.key] || "")) {
+          await setSetting({ key: k.key, value: values[k.key] || "" });
+        }
+      }
+      toast.success("All settings saved!");
     } catch {
-      setError("Invalid code or password. Please try again.");
+      toast.error("Failed to save settings");
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteAccount = async () => {
-    setLoading(true);
-    setError("");
-
-    try {
-      await deleteAccount();
-      await signOut();
-      navigate("/");
-    } catch {
-      setError("Could not delete account. Please try again.");
-      setLoading(false);
+      setSaving(null);
     }
   };
 
   return (
-    <div className="space-y-8 max-w-2xl mx-auto">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-          Settings
-        </h1>
-        <p className="text-muted-foreground mt-1">Page subtitle goes here</p>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-zinc-800 via-zinc-900 to-black p-8 text-white">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-emerald-500/10 to-transparent rounded-full -translate-y-1/2 translate-x-1/2" />
+        <div className="relative flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center">
+              <Settings className="size-5" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">Settings</h1>
+              <p className="text-zinc-400 text-sm">Configure API keys and integrations</p>
+            </div>
+          </div>
+          <Button
+            onClick={handleSaveAll}
+            disabled={saving === "all"}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            {saving === "all" ? <><div className="size-4 mr-2 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</> : <><Save className="size-4 mr-2" /> Save All</>}
+          </Button>
+        </div>
       </div>
 
-      <Card className="overflow-hidden">
-        <div className="h-20 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent" />
-        <CardContent className="-mt-10 pb-6">
-          <div className="flex items-end gap-4">
-            <Avatar className="size-16 border-4 border-background shadow-lg">
-              <AvatarFallback className="text-xl bg-primary text-primary-foreground">
-                {user?.name?.charAt(0).toUpperCase() || (
-                  <User className="size-6" />
-                )}
-              </AvatarFallback>
-            </Avatar>
-            <div className="pb-1">
-              <p className="font-semibold">{user?.name || "User"}</p>
-              <p className="text-sm text-muted-foreground">{user?.email}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Settings Cards */}
+      <div className="space-y-3">
+        {SETTING_KEYS.map(({ key, label, placeholder, hint }) => {
+          const isSecret = key.includes("KEY") || key.includes("WEBHOOK");
+          const show = showKeys[key] || false;
+          const currentVal = values[key] || "";
+          const savedVal = settings?.[key] || "";
+          const hasChanged = currentVal !== savedVal;
+          const isConfigured = !!savedVal;
 
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Palette className="size-4 text-muted-foreground" />
-            Appearance
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1">
-          {switchable ? (
-            <div className="flex items-center justify-between rounded-lg border p-4 transition-colors hover:bg-muted/50">
-              <div className="flex items-center gap-4">
-                <div className="size-10 rounded-full bg-secondary flex items-center justify-center">
-                  {theme === "light" ? (
-                    <Moon className="size-5 text-foreground" />
-                  ) : (
-                    <Sun className="size-5 text-foreground" />
-                  )}
+          return (
+            <Card key={key} className="border-0 shadow-sm bg-white dark:bg-zinc-900">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm font-bold">{label}</Label>
+                    {isConfigured && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                        <CheckCircle2 className="size-3" /> Set
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground">{hint}</span>
                 </div>
-                <div>
-                  <Label htmlFor="dark-mode" className="font-medium">
-                    Dark mode
-                  </Label>
-                  <p className="text-sm text-muted-foreground">
-                    Toggle description goes here
-                  </p>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      type={isSecret && !show ? "password" : "text"}
+                      value={currentVal}
+                      onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
+                      placeholder={placeholder}
+                      className="pr-10 font-mono text-sm"
+                    />
+                    {isSecret && (
+                      <button
+                        type="button"
+                        onClick={() => setShowKeys((s) => ({ ...s, [key]: !show }))}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </button>
+                    )}
+                  </div>
+                  <Button
+                    onClick={() => handleSave(key)}
+                    disabled={!hasChanged || saving === key}
+                    variant={hasChanged ? "default" : "outline"}
+                    size="sm"
+                    className={hasChanged ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}
+                  >
+                    {saving === key ? "..." : "Save"}
+                  </Button>
                 </div>
-              </div>
-              <Switch
-                id="dark-mode"
-                checked={theme === "dark"}
-                onCheckedChange={toggleTheme}
-              />
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground px-4 py-2">
-              Theme follows your system preference
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <User className="size-4 text-muted-foreground" />
-            Account
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1">
-          <button
-            onClick={() => setChangePasswordOpen(true)}
-            className="w-full flex items-center justify-between rounded-lg border p-4 transition-colors hover:bg-muted/50 text-left"
-          >
-            <div>
-              <p className="font-medium text-sm">Change password</p>
-              <p className="text-sm text-muted-foreground">
-                Update your password
-              </p>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground" />
-          </button>
-          <button
-            onClick={() => setDeleteAccountOpen(true)}
-            className="w-full flex items-center justify-between rounded-lg border border-destructive/20 p-4 transition-colors hover:bg-destructive/5 text-left"
-          >
-            <div>
-              <p className="font-medium text-sm text-destructive">
-                Delete account
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Permanently delete your account
-              </p>
-            </div>
-            <ChevronRight className="size-4 text-destructive" />
-          </button>
-        </CardContent>
-      </Card>
-
-      <Dialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Change Password</DialogTitle>
-            <DialogDescription>
-              {passwordStep === "request"
-                ? "We'll send a verification code to your email."
-                : "Enter the code from your email and your new password."}
-            </DialogDescription>
-          </DialogHeader>
-
-          {passwordStep === "request" ? (
-            <form onSubmit={handleRequestPasswordReset}>
-              <div className="py-4">
-                <p className="text-sm text-muted-foreground">
-                  A reset code will be sent to:{" "}
-                  <span className="font-medium text-foreground">
-                    {user?.email}
-                  </span>
-                </p>
-              </div>
-              {error && (
-                <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2 mb-4">
-                  {error}
-                </p>
-              )}
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setChangePasswordOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={loading}>
-                  {loading && <Loader2 className="size-4 animate-spin" />}
-                  Send Code
-                </Button>
-              </DialogFooter>
-            </form>
-          ) : (
-            <form onSubmit={handleResetPassword} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="code">Verification Code</Label>
-                <Input
-                  id="code"
-                  name="code"
-                  type="text"
-                  placeholder="Enter code from email"
-                  autoComplete="one-time-code"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="newPassword">New Password</Label>
-                <Input
-                  id="newPassword"
-                  name="newPassword"
-                  type="password"
-                  placeholder="••••••••"
-                  minLength={6}
-                  autoComplete="new-password"
-                  required
-                />
-              </div>
-              {error && (
-                <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
-                  {error}
-                </p>
-              )}
-              {success && (
-                <p className="text-sm text-success bg-success/10 rounded-lg px-3 py-2">
-                  {success}
-                </p>
-              )}
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setPasswordStep("request");
-                    setError("");
-                  }}
-                >
-                  Back
-                </Button>
-                <Button type="submit" disabled={loading}>
-                  {loading && <Loader2 className="size-4 animate-spin" />}
-                  Change Password
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={deleteAccountOpen} onOpenChange={setDeleteAccountOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Account</DialogTitle>
-            <DialogDescription>
-              This action cannot be undone. This will permanently delete your
-              account and remove all your data.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              Are you sure you want to delete your account?
-            </p>
-          </div>
-          {error && (
-            <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
-              {error}
-            </p>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteAccountOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteAccount}
-              disabled={loading}
-            >
-              {loading && <Loader2 className="size-4 animate-spin" />}
-              Delete Account
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }

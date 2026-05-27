@@ -8,7 +8,7 @@
  */
 import { v } from "convex/values";
 import { action, query, internalMutation } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -344,13 +344,21 @@ export const sendCustomerEmail = action({
     messageId: v.optional(v.string()),
     error: v.optional(v.string()),
   }),
-  handler: async (_ctx, args) => {
-    const resendApiKey = process.env.RESEND_API_KEY;
+  handler: async (ctx, args) => {
+    // Read API key from env vars first, then fall back to database settings
+    let resendApiKey = process.env.RESEND_API_KEY;
+    let fromEmail = process.env.FROM_EMAIL;
+    if (!resendApiKey) {
+      const dbKey: string | null = await ctx.runQuery(api.settings.get, { key: "RESEND_API_KEY" });
+      if (dbKey) resendApiKey = dbKey;
+    }
+    if (!fromEmail) {
+      const dbFrom: string | null = await ctx.runQuery(api.settings.get, { key: "FROM_EMAIL" });
+      fromEmail = dbFrom || "onboarding@resend.dev";
+    }
     if (!resendApiKey) {
       return { success: false, error: "Email not configured (RESEND_API_KEY missing)" };
     }
-
-    const fromEmail = process.env.FROM_EMAIL || "updates@greenscape.com";
 
     const htmlContent = `<!DOCTYPE html>
 <html>
@@ -384,7 +392,7 @@ export const sendCustomerEmail = action({
 </html>`;
 
     try {
-      const response = await fetch("https://api.resend.com/emails", {
+      const response: Response = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${resendApiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ from: `Greenscape AI <${fromEmail}>`, to: [args.to], subject: args.subject, html: htmlContent }),
@@ -416,13 +424,21 @@ export const sendCustomerEmail = action({
 
 export const getIntegrationStatus = query({
   args: {},
-  handler: async () => {
-    const ghlApiKey = process.env.GHL_API_KEY;
-    const ghlLocationId = process.env.GHL_LOCATION_ID;
-    const ghlPipelineId = process.env.GHL_PIPELINE_ID;
-    const slackWebhook = process.env.SLACK_WEBHOOK_URL;
-    const resendApiKey = process.env.RESEND_API_KEY;
-    const fromEmail = process.env.FROM_EMAIL;
+  handler: async (ctx) => {
+    // Check env vars first, then database settings as fallback
+    const dbResendKey = await ctx.db.query("settings").withIndex("by_key", (q) => q.eq("key", "RESEND_API_KEY")).first();
+    const dbFromEmail = await ctx.db.query("settings").withIndex("by_key", (q) => q.eq("key", "FROM_EMAIL")).first();
+    const dbGhlKey = await ctx.db.query("settings").withIndex("by_key", (q) => q.eq("key", "GHL_API_KEY")).first();
+    const dbGhlLoc = await ctx.db.query("settings").withIndex("by_key", (q) => q.eq("key", "GHL_LOCATION_ID")).first();
+    const dbGhlPipe = await ctx.db.query("settings").withIndex("by_key", (q) => q.eq("key", "GHL_PIPELINE_ID")).first();
+    const dbSlack = await ctx.db.query("settings").withIndex("by_key", (q) => q.eq("key", "SLACK_WEBHOOK_URL")).first();
+
+    const ghlApiKey = process.env.GHL_API_KEY || dbGhlKey?.value;
+    const ghlLocationId = process.env.GHL_LOCATION_ID || dbGhlLoc?.value;
+    const ghlPipelineId = process.env.GHL_PIPELINE_ID || dbGhlPipe?.value;
+    const slackWebhook = process.env.SLACK_WEBHOOK_URL || dbSlack?.value;
+    const resendApiKey = process.env.RESEND_API_KEY || dbResendKey?.value;
+    const fromEmail = process.env.FROM_EMAIL || dbFromEmail?.value;
 
     return {
       ghl: {

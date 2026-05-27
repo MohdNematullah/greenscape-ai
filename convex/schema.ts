@@ -163,6 +163,11 @@ const schema = defineSchema({
     relatedId: v.optional(v.string()),
     createdBy: v.id("users"),
   }).index("by_createdBy", ["createdBy"]),
+
+  settings: defineTable({
+    key: v.string(),
+    value: v.string(),
+  }).index("by_key", ["key"]),
 });
 
 export default schema;
