@@ -434,48 +434,78 @@ export function ProposalsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Proposal Preview Dialog ─────────────────────────────────── */}
+      {/* ── Proposal Preview Dialog — Full-width document template ─── */}
       <Dialog open={!!showPreview} onOpenChange={() => setShowPreview(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
+        <DialogContent className="sm:max-w-[95vw] lg:max-w-[900px] max-h-[95vh] overflow-y-auto p-0">
           {previewProposal && (() => {
             const email = getClientEmail(previewProposal.leadId);
             return (
-            <>
-              <div className="bg-gradient-to-r from-green-600 to-emerald-600 p-6 text-white rounded-t-lg">
-                <DialogHeader>
-                  <DialogTitle className="text-white text-xl flex items-center gap-3">
-                    <FileText className="size-5" /> Proposal: {previewProposal.clientName}
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="flex items-center gap-4 mt-3 text-sm text-green-100">
-                  <span>🏗️ {previewProposal.projectType.replace(/_/g, " ")}</span>
-                  {previewProposal.totalAmount && (
-                    <span className="font-bold text-white text-lg bg-white/20 px-3 py-0.5 rounded-full">
-                      ${previewProposal.totalAmount.toLocaleString()}
-                    </span>
-                  )}
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/20 capitalize">
-                    {previewProposal.status}
-                  </span>
-                  {email && <span className="text-xs bg-white/10 px-2 py-0.5 rounded-full">📧 {email}</span>}
+            <div className="w-full">
+              {/* ── Document Header — Greenscape Letterhead ── */}
+              <div className="bg-gradient-to-r from-emerald-700 via-green-700 to-teal-700 px-8 py-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-2xl font-bold tracking-tight">GREENSCAPE</h1>
+                    <p className="text-green-200 text-xs mt-0.5">Premium Landscape & Hardscape · Phoenix, AZ</p>
+                  </div>
+                  <div className="text-right text-sm text-green-100">
+                    <p className="font-semibold text-white capitalize">{statusConfig[previewProposal.status]?.icon} {statusConfig[previewProposal.status]?.label || previewProposal.status}</p>
+                    <p className="text-xs mt-0.5">{new Date(previewProposal._creationTime).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
+                  </div>
                 </div>
               </div>
 
-              <div className="p-6 space-y-6">
+              {/* ── Client & Project Summary Bar ── */}
+              <div className="bg-gray-50 dark:bg-zinc-800/50 border-b px-8 py-4">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-6 text-sm">
+                    <div>
+                      <span className="text-xs text-muted-foreground uppercase tracking-wide">Client</span>
+                      <p className="font-bold text-base">{previewProposal.clientName}</p>
+                    </div>
+                    <div>
+                      <span className="text-xs text-muted-foreground uppercase tracking-wide">Project</span>
+                      <p className="font-semibold">{previewProposal.projectType.replace(/_/g, " ")}</p>
+                    </div>
+                    {email && (
+                      <div>
+                        <span className="text-xs text-muted-foreground uppercase tracking-wide">Email</span>
+                        <p className="text-sm">{email}</p>
+                      </div>
+                    )}
+                  </div>
+                  {previewProposal.totalAmount && (
+                    <div className="text-right">
+                      <span className="text-xs text-muted-foreground uppercase tracking-wide">Total Investment</span>
+                      <p className="font-extrabold text-2xl text-green-600">${previewProposal.totalAmount.toLocaleString()}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Proposal Body ── */}
+              <div className="px-8 py-6 space-y-6">
+                {/* Full proposal content */}
+                {previewProposal.proposalContent && (
+                  <div className="prose prose-sm dark:prose-invert max-w-none text-[14px] leading-[1.7] whitespace-pre-wrap"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(previewProposal.proposalContent) }}
+                  />
+                )}
+
                 {/* Line items table */}
                 {previewProposal.lineItemsJson && previewProposal.lineItemsJson !== "[]" && (
                   <div>
-                    <h4 className="font-bold text-lg flex items-center gap-2 mb-3">
-                      <DollarSign className="size-5 text-green-600" /> Line Items
+                    <h4 className="font-bold text-base flex items-center gap-2 mb-3 text-green-700 uppercase tracking-wide">
+                      <DollarSign className="size-4" /> Investment Breakdown
                     </h4>
-                    <div className="border rounded-xl overflow-hidden">
+                    <div className="border rounded-lg overflow-hidden">
                       <table className="w-full text-sm">
-                        <thead className="bg-gray-50 dark:bg-zinc-800">
+                        <thead className="bg-green-50 dark:bg-green-950/20">
                           <tr>
-                            <th className="text-left p-3 font-semibold">Item</th>
-                            <th className="text-right p-3 font-semibold">Qty</th>
-                            <th className="text-right p-3 font-semibold">Unit Price</th>
-                            <th className="text-right p-3 font-semibold">Total</th>
+                            <th className="text-left p-3 font-semibold text-green-800 dark:text-green-300">Item</th>
+                            <th className="text-right p-3 font-semibold text-green-800 dark:text-green-300">Qty</th>
+                            <th className="text-right p-3 font-semibold text-green-800 dark:text-green-300">Unit Price</th>
+                            <th className="text-right p-3 font-semibold text-green-800 dark:text-green-300">Total</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -483,11 +513,11 @@ export function ProposalsPage() {
                             try {
                               return JSON.parse(previewProposal.lineItemsJson).map(
                                 (item: { item: string; qty: number; unitPrice: number; total: number; unit: string }, i: number) => (
-                                  <tr key={i} className="border-t">
+                                  <tr key={i} className="border-t hover:bg-gray-50 dark:hover:bg-zinc-800/30">
                                     <td className="p-3 font-medium">{item.item}</td>
                                     <td className="text-right p-3 text-muted-foreground">{item.qty} {item.unit}</td>
                                     <td className="text-right p-3 text-muted-foreground">${item.unitPrice?.toLocaleString()}</td>
-                                    <td className="text-right p-3 font-bold text-green-600">${item.total?.toLocaleString()}</td>
+                                    <td className="text-right p-3 font-bold">${item.total?.toLocaleString()}</td>
                                   </tr>
                                 )
                               );
@@ -496,9 +526,9 @@ export function ProposalsPage() {
                         </tbody>
                         {previewProposal.totalAmount && (
                           <tfoot>
-                            <tr className="bg-green-50 dark:bg-green-950/20 border-t-2 border-green-200">
-                              <td colSpan={3} className="p-3 text-right font-bold text-lg">Total Investment</td>
-                              <td className="p-3 text-right font-extrabold text-lg text-green-700">${previewProposal.totalAmount.toLocaleString()}</td>
+                            <tr className="bg-green-600 text-white">
+                              <td colSpan={3} className="p-3 text-right font-bold text-base">Total</td>
+                              <td className="p-3 text-right font-extrabold text-base">${previewProposal.totalAmount.toLocaleString()}</td>
                             </tr>
                           </tfoot>
                         )}
@@ -506,39 +536,27 @@ export function ProposalsPage() {
                     </div>
                   </div>
                 )}
-
-                {/* Full proposal content — clean rendered */}
-                {previewProposal.proposalContent && (
-                  <div>
-                    <h4 className="font-bold text-lg flex items-center gap-2 mb-3">
-                      <FileText className="size-5 text-indigo-600" /> Full Proposal
-                    </h4>
-                    <div className="border rounded-xl p-8 bg-white dark:bg-zinc-900 text-sm leading-relaxed"
-                      dangerouslySetInnerHTML={{ __html: renderMarkdown(previewProposal.proposalContent) }}
-                    />
-                  </div>
-                )}
-
-                {/* Action buttons in preview */}
-                <div className="flex gap-2 pt-2 border-t">
-                  <Button className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                    disabled={sendingEmail === previewProposal._id}
-                    onClick={() => { handleSendEmail(previewProposal._id); }}>
-                    {sendingEmail === previewProposal._id ? (
-                      <><div className="size-4 mr-2 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Sending...</>
-                    ) : (
-                      <><Send className="size-4 mr-2" /> Send to Client {email ? `(${email})` : ""}</>
-                    )}
-                  </Button>
-                  <Button variant="outline" onClick={() => openEdit(previewProposal)}>
-                    <Pencil className="size-4 mr-2" /> Edit
-                  </Button>
-                  <Button variant="outline" onClick={() => copyProposal(previewProposal.proposalContent || "")}>
-                    <Copy className="size-4 mr-2" /> Copy
-                  </Button>
-                </div>
               </div>
-            </>
+
+              {/* ── Action Bar — Sticky bottom ── */}
+              <div className="sticky bottom-0 bg-white dark:bg-zinc-900 border-t px-8 py-4 flex gap-2 items-center">
+                <Button className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold"
+                  disabled={sendingEmail === previewProposal._id}
+                  onClick={() => { handleSendEmail(previewProposal._id); }}>
+                  {sendingEmail === previewProposal._id ? (
+                    <><div className="size-4 mr-2 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Sending...</>
+                  ) : (
+                    <><Send className="size-4 mr-2" /> Send to Client {email ? `(${email})` : ""}</>
+                  )}
+                </Button>
+                <Button variant="outline" onClick={() => openEdit(previewProposal)}>
+                  <Pencil className="size-4 mr-1" /> Edit
+                </Button>
+                <Button variant="outline" onClick={() => copyProposal(previewProposal.proposalContent || "")}>
+                  <Copy className="size-4 mr-1" /> Copy
+                </Button>
+              </div>
+            </div>
             );
           })()}
         </DialogContent>
