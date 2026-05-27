@@ -7,7 +7,7 @@
  * All integrations are best-effort — they fail silently if not configured.
  */
 import { v } from "convex/values";
-import { action, query, internalMutation } from "./_generated/server";
+import { action, query, internalQuery, internalMutation, mutation } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -50,11 +50,50 @@ async function resolveSlackWebhook(ctx: { runQuery: any }): Promise<string | und
   return dbUrl || undefined;
 }
 
-/** Send Slack notification with automatic DB fallback for webhook URL */
+/** Enqueue a Slack message for Viktor relay (always works, no webhook needed) */
+export const enqueueSlackMessage = mutation({
+  args: { blocksJson: v.string(), text: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.insert("slackQueue", {
+      blocksJson: args.blocksJson,
+      text: args.text,
+      status: "pending",
+    });
+  },
+});
+
+/** Internal version for actions to call */
+export const enqueueSlackInternal = internalMutation({
+  args: { blocksJson: v.string(), text: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.insert("slackQueue", {
+      blocksJson: args.blocksJson,
+      text: args.text,
+      status: "pending",
+    });
+  },
+});
+
+/** Send Slack notification — tries webhook first, always enqueues for Viktor relay */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function sendSlackNotification(ctx: { runQuery: any }, blocks: SlackBlock[], fallbackText: string): Promise<boolean> {
+async function sendSlackNotification(ctx: { runQuery: any; runMutation: any }, blocks: SlackBlock[], fallbackText: string): Promise<boolean> {
+  // Always enqueue for Viktor relay
+  try {
+    await ctx.runMutation(internal.integrations.enqueueSlackInternal, {
+      blocksJson: JSON.stringify(blocks),
+      text: fallbackText,
+    });
+  } catch (err) {
+    console.error("Failed to enqueue Slack message:", err);
+  }
+  // Also try direct webhook if configured
   const url = await resolveSlackWebhook(ctx);
-  return await sendSlackWebhook(blocks, fallbackText, url);
+  if (url) {
+    return await sendSlackWebhook(blocks, fallbackText, url);
+  }
+  return true; // queued successfully
 }
 
 function divider(): SlackBlock {
@@ -594,5 +633,33 @@ export const createLeadFromGHLInternal = internalMutation({
       createdBy: "system" as unknown as import("./_generated/dataModel").Id<"users">,
     });
     return { created: true };
+  },
+});
+
+// ─── Slack Queue (Viktor Relay) ──────────────────────────────────────────────
+
+/** Get pending Slack messages for Viktor relay */
+export const getPendingSlackMessages = internalQuery({
+  args: {},
+  returns: v.array(v.object({
+    _id: v.id("slackQueue"),
+    blocksJson: v.string(),
+    text: v.string(),
+  })),
+  handler: async (ctx) => {
+    const pending = await ctx.db
+      .query("slackQueue")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .take(20);
+    return pending.map((m) => ({ _id: m._id, blocksJson: m.blocksJson, text: m.text }));
+  },
+});
+
+/** Mark a Slack message as sent after Viktor relay */
+export const markSlackMessageSent = internalMutation({
+  args: { id: v.id("slackQueue") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, { status: "sent", sentAt: Date.now() });
   },
 });

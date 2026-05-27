@@ -168,6 +168,13 @@ const schema = defineSchema({
     key: v.string(),
     value: v.string(),
   }).index("by_key", ["key"]),
+
+  slackQueue: defineTable({
+    blocksJson: v.string(),   // JSON-encoded Slack blocks
+    text: v.string(),         // fallback text
+    status: v.string(),       // "pending" | "sent" | "failed"
+    sentAt: v.optional(v.number()),
+  }).index("by_status", ["status"]),
 });
 
 export default schema;

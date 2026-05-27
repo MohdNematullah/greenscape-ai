@@ -78,6 +78,65 @@ http.route({
   }),
 });
 
+// ─── Slack Queue (Viktor Relay) ───────────────────────────────────────────────
+// GET  /api/slack-queue  — returns pending Slack messages for Viktor to relay
+// POST /api/slack-queue/ack — mark messages as sent
+
+http.route({
+  path: "/api/slack-queue",
+  method: "GET",
+  handler: httpActionGeneric(async (ctx, request) => {
+    const url = new URL(request.url);
+    const secret = url.searchParams.get("secret");
+    if (secret !== "greenscape2024setup") {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const pending = await ctx.runQuery(internal.integrations.getPendingSlackMessages, {});
+    return new Response(JSON.stringify({ messages: pending }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
+http.route({
+  path: "/api/slack-queue/ack",
+  method: "POST",
+  handler: httpActionGeneric(async (ctx, request) => {
+    try {
+      const body = await request.json() as Record<string, unknown>;
+      if (body.secret !== "greenscape2024setup") {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const ids = body.ids as string[];
+      if (!Array.isArray(ids)) {
+        return new Response(JSON.stringify({ error: "Missing ids array" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      for (const id of ids) {
+        await ctx.runMutation(internal.integrations.markSlackMessageSent, { id: id as import("./_generated/dataModel").Id<"slackQueue"> });
+      }
+      return new Response(JSON.stringify({ success: true, acked: ids.length }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (err) {
+      return new Response(JSON.stringify({ error: String(err) }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }),
+});
+
 export default http;
 
 // ─── Config Setup Endpoint ────────────────────────────────────────────────────
