@@ -158,9 +158,17 @@ export const generateProposal = action({
     estimatedTotal: v.number(),
   }),
   handler: async (_ctx, args) => {
+    // Current date in Phoenix timezone
+    const now = new Date();
+    const todayStr = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "America/Phoenix" });
+    const startDateEst = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "America/Phoenix" });
+
     const prompt = `${COMPANY_CONTEXT}
 
-TASK: Write a premium proposal from the site walk notes. This is the #1 bottleneck — proposals currently take 6-9 days. This AI draft should take minutes.
+TASK: Write a premium, real-looking proposal from the site walk notes. This proposal will be sent directly to the client — it must look 100% professional and real.
+
+TODAY'S DATE: ${todayStr}
+ESTIMATED START DATE: ${startDateEst} (4 weeks from today — standard lead time)
 
 SITE WALK NOTES:
 ${args.siteWalkNotes}
@@ -169,27 +177,27 @@ CLIENT: ${args.clientName}
 PROJECT TYPE: ${args.projectType}
 FEATURES: ${args.features || "See site walk notes"}
 BUDGET RANGE: ${args.budget || "To be determined from scope"}
-TIMELINE: ${args.timeline || "Standard 4-6 week lead time"}
 
 ${args.pricingData ? `PRICING REFERENCE:\n${args.pricingData}` : ""}
 
 Write the proposal with these sections:
-1. **Project Overview** — Warm, professional intro addressed to the client
-2. **Scope of Work** — Detailed breakdown of what's included
-3. **Materials & Specifications** — Key materials, brands, finishes
-4. **Installation Process** — Phase-by-phase how the work gets done
-5. **Timeline** — Realistic schedule with milestones
-6. **Investment Summary** — Line items with pricing (use pricing reference if provided, otherwise estimate based on project type and Phoenix market rates)
-7. **Quality Guarantee** — Warranty, workmanship guarantee
-8. **Exclusions** — What's NOT included
-9. **Next Steps** — How to proceed (sign, deposit, onboarding)
+1. Project Overview — Warm intro addressed to the client by name. Include today's date (${todayStr}) and proposal number (use format GS-2026-XXXX with random 4 digits).
+2. Scope of Work — Detailed breakdown of what's included
+3. Materials & Specifications — Specific materials, brands, finishes
+4. Timeline — Use REAL dates starting from ${startDateEst}. Break into phases with actual date ranges.
+5. Investment Summary — Line items with pricing
+6. Terms — 50% deposit to schedule, balance on completion. 5-year workmanship warranty.
+7. Next Steps — Sign below, deposit, project kickoff
 
-RULES:
-- Sound confident, direct, premium but not salesy
-- Short paragraphs, no fluff
-- Never sound robotic or use hype
-- Use ## headers in markdown
-- End with "— The Greenscape Team"
+CRITICAL RULES:
+- ALL dates must be in 2026 or later. NEVER use 2024 or 2025 dates.
+- The proposal date is ${todayStr}. The start date is approximately ${startDateEst}.
+- Sound like a real contractor — confident, direct, premium
+- Short paragraphs, no fluff, no hype
+- Do NOT use markdown headers (no ## or **). Write plain text with section titles in ALL CAPS followed by a line break.
+- Do NOT use asterisks, hashtags, or any markdown formatting
+- End with "— The Greenscape Team" and company phone/address
+- Keep it concise — a real proposal, not an essay
 
 After the proposal, include a JSON block wrapped in \`\`\`json tags:
 {
@@ -244,11 +252,15 @@ export const generateCustomerUpdate = action({
     content: v.string(),
   }),
   handler: async (_ctx, args) => {
+    const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "America/Phoenix" });
+
     const prompt = `${COMPANY_CONTEXT}
 
 TASK: Write a customer update message to ${args.clientName} from the Greenscape owner.
 
-When the owner sends personal updates (especially Loom-style), customers love it and refer friends. "You're the only contractor who kept us informed." This message should feel like a personal note from the owner — warm, confident, brief.
+TODAY'S DATE: ${today}
+
+When the owner sends personal updates, customers love it and refer friends. This should feel like a personal note — warm, confident, brief.
 
 Update Type: ${args.updateType}
 ${args.milestone ? `Milestone: ${args.milestone}` : ""}
@@ -256,11 +268,13 @@ Project: ${args.projectType}
 Progress: ${args.progressDetails}
 
 RULES:
-- Under 100 words
+- Under 80 words
 - Start with "Hi ${args.clientName},"
-- Mention what was completed and what's next
-- Reassuring, professional, genuinely warm
+- Say what was done and what's next
+- Warm, professional, real
 - End with "— The Greenscape Team"
+- Do NOT use markdown (no **, ##, *)
+- Plain text only
 - NO hype, NO corporate speak
 
 Write ONLY the message.`;
